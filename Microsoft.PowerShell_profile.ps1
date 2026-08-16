@@ -67,7 +67,12 @@ if (Test-Path $__f) { . $__f }
 fnm env --use-on-cd --version-file-strategy=recursive --corepack-enabled --resolve-engines --shell powershell | Out-String | Invoke-Expression
 
 # ── Aliases ───────────────────────────────────────────────────────────
-Set-Alias -Name la -Value Get-ChildItem
+# ls — follows the Unix-side convention: ll is long format, la is long format + hidden items.
+# PowerShell aliases can't carry fixed parameters (-Force), so this has to be a function;
+# aliases take precedence over functions, so the existing Set-Alias la must be removed first
+Remove-Item Alias:la -Force -ErrorAction Ignore
+function ll { Get-ChildItem @args }
+function la { Get-ChildItem -Force @args }
 
 # git — replaces the posh-git / git-aliases modules.
 # Must use a function instead of Set-Alias: aliases can't carry fixed parameters.
