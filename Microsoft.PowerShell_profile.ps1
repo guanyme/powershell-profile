@@ -14,6 +14,29 @@
 # ── The shell itself ─────────────────────────────────────────────────────
 Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
 
+# ── PATH self-repair ──────────────────────────────────────────────────────
+# Third-party installers commonly use [Environment]::SetEnvironmentVariable to write to the user PATH,
+# and that API writes REG_SZ — once the type is downgraded, %USERPROFILE% is baked into a literal string,
+# and entries containing %VAR% added afterward won't expand either. Detect this and fix it.
+# Only the representation changes; the expanded value stays the same. Normally, this adds just one registry read.
+$__uk = "HKCU:\Environment"
+$__raw = (Get-Item $__uk -ErrorAction SilentlyContinue).GetValue("Path", "", "DoNotExpandEnvironmentNames")
+if ($__raw) {
+    $__kind = (Get-Item $__uk).GetValueKind("Path")
+    if ($__kind -ne "ExpandString" -or $__raw -like "*$env:USERPROFILE\*") {
+        $__fixed = (($__raw -split ";") | Where-Object { $_ } | ForEach-Object {
+                if ($_.StartsWith("$env:USERPROFILE\", [StringComparison]::OrdinalIgnoreCase)) {
+                    "%USERPROFILE%\" + $_.Substring($env:USERPROFILE.Length + 1)
+                } else { $_ }
+            }) -join ";"
+        # Only proceed if the expanded values match
+        if ([Environment]::ExpandEnvironmentVariables($__fixed) -eq
+            [Environment]::ExpandEnvironmentVariables($__raw).TrimEnd(";")) {
+            Set-ItemProperty -Path $__uk -Name Path -Value $__fixed -Type ExpandString
+        }
+    }
+}
+
 # ── Startup cache ───────────────────────────────────────────────────────
 # The starship / fnm initialization scripts change only when the binaries do; caching them avoids a subprocess on every startup.
 # dot-source must be at the top level: inside a function, it only affects the function scope, so the prompt won't appear.
