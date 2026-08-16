@@ -38,7 +38,7 @@ if ($__raw) {
 }
 
 # ── Startup cache ───────────────────────────────────────────────────────
-# The starship / fnm initialization scripts change only when the binaries do; caching them avoids a subprocess on every startup.
+# The starship / mise initialization scripts change only when the binaries do; caching them avoids a subprocess on every startup.
 # dot-source must be at the top level: inside a function, it only affects the function scope, so the prompt won't appear.
 $__cacheDir = "$HOME\.cache\pwsh"
 if (-not (Test-Path $__cacheDir)) { New-Item -ItemType Directory $__cacheDir -Force | Out-Null }
@@ -54,17 +54,21 @@ if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt
 if (Test-Path $__f) { . $__f }
 
 # ── Language runtime ─────────────────────────────────────────────────────
-# node — completion script is about 42 KB, so use the cache
-$__f = "$__cacheDir\fnm-completions.ps1"
-$__src = (Get-Command fnm -ErrorAction SilentlyContinue).Source
+# node / pnpm — handled by mise (replacing the fnm + corepack layers).
+# activate cannot be cached: every startup must resolve the version for the current session and install the directory-switching hook.
+# Version sources: global ~\.config\mise\config.toml; the project's mise.toml / .node-version /
+# package.json packageManager field overrides it based on proximity
+(&mise activate pwsh) | Out-String | Invoke-Expression
+
+# Completions use the cache. They must come after activate — the completion script calls usage when it runs,
+# and usage itself is a tool managed by mise. Before activate, it isn't on PATH,
+# so every new shell prints "usage CLI not found"
+$__f = "$__cacheDir\mise-completions.ps1"
+$__src = (Get-Command mise -ErrorAction SilentlyContinue).Source
 if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt (Get-Item $__f).LastWriteTime)) {
-    fnm completions --shell powershell | Out-String | Set-Content $__f -Encoding utf8
+    mise completion powershell | Out-String | Set-Content $__f -Encoding utf8
 }
 if (Test-Path $__f) { . $__f }
-
-# fnm env cannot be cached: it must create a multishell directory for the current session every time.
-# Note that %LOCALAPPDATA%\fnm_multishells keeps accumulating; on Windows, it isn't cleaned up on exit
-fnm env --use-on-cd --version-file-strategy=recursive --corepack-enabled --resolve-engines --shell powershell | Out-String | Invoke-Expression
 
 # ── Aliases ───────────────────────────────────────────────────────────
 # la — follows the Unix-side convention: long format + hidden items.
@@ -85,6 +89,11 @@ function gcmsg { git commit --message @args }
 function gp { git push @args }
 function gl { git pull @args }
 function gcl { git clone --recurse-submodules @args }
+function grt {
+    # Jump to the repository root. git returns nothing outside a repository, and Set-Location $null throws an error, so guard against that
+    $root = git rev-parse --show-toplevel 2>$null
+    if ($root) { Set-Location $root } else { Write-Warning "不在 git 仓库中" }
+}
 
 # ni / nr — ni is also a built-in alias (New-Item), so remove it first
 Remove-Item Alias:ni -Force -ErrorAction Ignore
