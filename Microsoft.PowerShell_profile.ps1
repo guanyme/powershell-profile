@@ -67,11 +67,10 @@ if (Test-Path $__f) { . $__f }
 fnm env --use-on-cd --version-file-strategy=recursive --corepack-enabled --resolve-engines --shell powershell | Out-String | Invoke-Expression
 
 # ── 别名 ───────────────────────────────────────────────────────────
-# ls —— 对齐 Unix 侧的约定：ll 长格式，la 长格式 + 隐藏项。
+# la —— 对齐 Unix 侧的约定：长格式 + 隐藏项。
 # PowerShell 的别名不能携带固定参数（-Force），所以只能写成函数；
 # 而别名的解析优先级高于函数，原有的 Set-Alias la 必须先移除
 Remove-Item Alias:la -Force -ErrorAction Ignore
-function ll { Get-ChildItem @args }
 function la { Get-ChildItem -Force @args }
 
 # git —— 取代 posh-git / git-aliases 模块。
@@ -136,5 +135,4 @@ function claude {
         & $claudePath @baseArgs @args
     }
 }
-
 
