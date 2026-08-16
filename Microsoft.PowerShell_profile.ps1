@@ -38,7 +38,7 @@ if ($__raw) {
 }
 
 # ── 启动缓存 ───────────────────────────────────────────────────────
-# starship / fnm 的初始化脚本只随二进制变化，缓存后省掉每次启动的子进程。
+# starship / mise 的初始化脚本只随二进制变化，缓存后省掉每次启动的子进程。
 # dot-source 必须在顶层：包进函数里只会作用于函数作用域，prompt 出不来。
 $__cacheDir = "$HOME\.cache\pwsh"
 if (-not (Test-Path $__cacheDir)) { New-Item -ItemType Directory $__cacheDir -Force | Out-Null }
@@ -54,17 +54,21 @@ if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt
 if (Test-Path $__f) { . $__f }
 
 # ── 语言运行时 ─────────────────────────────────────────────────────
-# node —— 补全脚本约 42 KB，走缓存
-$__f = "$__cacheDir\fnm-completions.ps1"
-$__src = (Get-Command fnm -ErrorAction SilentlyContinue).Source
+# node / pnpm —— 交给 mise（取代 fnm + corepack 两层）。
+# activate 不能缓存：每次启动都要为当前会话解析版本、挂上目录切换钩子。
+# 版本来源：全局 ~\.config\mise\config.toml，项目里的 mise.toml / .node-version /
+# package.json 的 packageManager 字段会就近覆盖
+(&mise activate pwsh) | Out-String | Invoke-Expression
+
+# 补全走缓存。必须排在 activate 之后 —— 补全脚本运行时要调 usage，
+# 而 usage 本身是 mise 管的工具，activate 之前它不在 PATH 里，
+# 于是每开一个 shell 都会打一行 "usage CLI not found"
+$__f = "$__cacheDir\mise-completions.ps1"
+$__src = (Get-Command mise -ErrorAction SilentlyContinue).Source
 if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt (Get-Item $__f).LastWriteTime)) {
-    fnm completions --shell powershell | Out-String | Set-Content $__f -Encoding utf8
+    mise completion powershell | Out-String | Set-Content $__f -Encoding utf8
 }
 if (Test-Path $__f) { . $__f }
-
-# fnm env 不能缓存：每次都要为当前会话创建 multishell 目录。
-# 注意 %LOCALAPPDATA%\fnm_multishells 会一直堆积，Windows 上退出时不清理
-fnm env --use-on-cd --version-file-strategy=recursive --corepack-enabled --resolve-engines --shell powershell | Out-String | Invoke-Expression
 
 # ── 别名 ───────────────────────────────────────────────────────────
 # la —— 对齐 Unix 侧的约定：长格式 + 隐藏项。
@@ -85,6 +89,11 @@ function gcmsg { git commit --message @args }
 function gp { git push @args }
 function gl { git pull @args }
 function gcl { git clone --recurse-submodules @args }
+function grt {
+    # 跳到仓库根。git 不在仓库里会返回空，此时 Set-Location $null 会抛异常，所以要挡一下
+    $root = git rev-parse --show-toplevel 2>$null
+    if ($root) { Set-Location $root } else { Write-Warning "不在 git 仓库中" }
+}
 
 # ni / nr —— ni 同样是内置别名（New-Item），先让位
 Remove-Item Alias:ni -Force -ErrorAction Ignore
