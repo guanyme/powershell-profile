@@ -14,6 +14,29 @@
 # ── shell 自身 ─────────────────────────────────────────────────────
 Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
 
+# ── PATH 自愈 ──────────────────────────────────────────────────────
+# 第三方安装器普遍用 [Environment]::SetEnvironmentVariable 往用户 PATH 写东西，
+# 那个 API 写的是 REG_SZ —— 类型一退回，%USERPROFILE% 就被烤成字面量，
+# 之后再加带 %VAR% 的条目也不会展开了。检测到就修回去。
+# 只改表示形式，展开后的值不变；平时只多一次注册表读取。
+$__uk = "HKCU:\Environment"
+$__raw = (Get-Item $__uk -ErrorAction SilentlyContinue).GetValue("Path", "", "DoNotExpandEnvironmentNames")
+if ($__raw) {
+    $__kind = (Get-Item $__uk).GetValueKind("Path")
+    if ($__kind -ne "ExpandString" -or $__raw -like "*$env:USERPROFILE\*") {
+        $__fixed = (($__raw -split ";") | Where-Object { $_ } | ForEach-Object {
+                if ($_.StartsWith("$env:USERPROFILE\", [StringComparison]::OrdinalIgnoreCase)) {
+                    "%USERPROFILE%\" + $_.Substring($env:USERPROFILE.Length + 1)
+                } else { $_ }
+            }) -join ";"
+        # 展开后必须一致，否则不动
+        if ([Environment]::ExpandEnvironmentVariables($__fixed) -eq
+            [Environment]::ExpandEnvironmentVariables($__raw).TrimEnd(";")) {
+            Set-ItemProperty -Path $__uk -Name Path -Value $__fixed -Type ExpandString
+        }
+    }
+}
+
 # ── 启动缓存 ───────────────────────────────────────────────────────
 # starship / fnm 的初始化脚本只随二进制变化，缓存后省掉每次启动的子进程。
 # dot-source 必须在顶层：包进函数里只会作用于函数作用域，prompt 出不来。
