@@ -1,87 +1,12 @@
-# ═══════════════════════════════════════════════════════════════════
-# Layer from the inside out: shell → prompt → language runtime → aliases → functions
-# Keep the same layers as macOS ~/.zshrc so they're easy to compare.
-#
-# PATH is not set in this file — Windows PATH comes entirely from two registry levels:
-#   HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment   machine-level
-#   HKCU\Environment                                                    user-level
-# At login, they are merged with "machine-level first, user-level second." Always use
-#   Set-ItemProperty -Path "HKCU:\Environment" -Name Path -Value $v -Type ExpandString
-# rather than [Environment]::SetEnvironmentVariable — the latter writes REG_SZ,
-# baking references like %USERPROFILE% / %SystemRoot% into literal strings.
-# ═══════════════════════════════════════════════════════════════════
-
-# ── The shell itself ─────────────────────────────────────────────────────
 Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
 
-# ── PATH self-repair ──────────────────────────────────────────────────────
-# Third-party installers commonly use [Environment]::SetEnvironmentVariable to write to the user PATH,
-# and that API writes REG_SZ — once the type is downgraded, %USERPROFILE% is baked into a literal string,
-# and entries containing %VAR% added afterward won't expand either. Detect this and fix it.
-# Only the representation changes; the expanded value stays the same. Normally, this adds just one registry read.
-$__uk = "HKCU:\Environment"
-$__raw = (Get-Item $__uk -ErrorAction SilentlyContinue).GetValue("Path", "", "DoNotExpandEnvironmentNames")
-if ($__raw) {
-    $__kind = (Get-Item $__uk).GetValueKind("Path")
-    if ($__kind -ne "ExpandString" -or $__raw -like "*$env:USERPROFILE\*") {
-        $__fixed = (($__raw -split ";") | Where-Object { $_ } | ForEach-Object {
-                if ($_.StartsWith("$env:USERPROFILE\", [StringComparison]::OrdinalIgnoreCase)) {
-                    "%USERPROFILE%\" + $_.Substring($env:USERPROFILE.Length + 1)
-                } else { $_ }
-            }) -join ";"
-        # Only proceed if the expanded values match
-        if ([Environment]::ExpandEnvironmentVariables($__fixed) -eq
-            [Environment]::ExpandEnvironmentVariables($__raw).TrimEnd(";")) {
-            Set-ItemProperty -Path $__uk -Name Path -Value $__fixed -Type ExpandString
-        }
-    }
-}
+Invoke-Expression (&starship init powershell)
 
-# ── Startup cache ───────────────────────────────────────────────────────
-# The starship / mise initialization scripts change only when the binaries do; caching them avoids a subprocess on every startup.
-# dot-source must be at the top level: inside a function, it only affects the function scope, so the prompt won't appear.
-$__cacheDir = "$HOME\.cache\pwsh"
-if (-not (Test-Path $__cacheDir)) { New-Item -ItemType Directory $__cacheDir -Force | Out-Null }
+# PowerShell aliases cannot take parameters, so define them all as functions.
+# Built-in aliases take precedence over functions, so remove any with the same name first.
+foreach ($a in "la", "gp", "gl", "ni") { Remove-Item "Alias:$a" -Force -ErrorAction Ignore }
 
-# ── Prompt ─────────────────────────────────────────────────────────
-# Use --print-full-init to output the complete script directly; `starship init powershell` only returns a one-line
-# bootstrap, which launches starship again when executed
-$__f = "$__cacheDir\starship.ps1"
-$__src = (Get-Command starship -ErrorAction SilentlyContinue).Source
-if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt (Get-Item $__f).LastWriteTime)) {
-    starship init powershell --print-full-init | Out-String | Set-Content $__f -Encoding utf8
-}
-if (Test-Path $__f) { . $__f }
-
-# ── Language runtime ─────────────────────────────────────────────────────
-# node / pnpm — handled by mise (replacing the fnm + corepack layers).
-# activate cannot be cached: every startup must resolve the version for the current session and install the directory-switching hook.
-# Version sources: global ~\.config\mise\config.toml; the project's mise.toml / .node-version /
-# package.json packageManager field overrides it based on proximity
-(&mise activate pwsh) | Out-String | Invoke-Expression
-
-# Completions use the cache. They must come after activate — the completion script calls usage when it runs,
-# and usage itself is a tool managed by mise. Before activate, it isn't on PATH,
-# so every new shell prints "usage CLI not found"
-$__f = "$__cacheDir\mise-completions.ps1"
-$__src = (Get-Command mise -ErrorAction SilentlyContinue).Source
-if ($__src -and ((-not (Test-Path $__f)) -or (Get-Item $__src).LastWriteTime -gt (Get-Item $__f).LastWriteTime)) {
-    mise completion powershell | Out-String | Set-Content $__f -Encoding utf8
-}
-if (Test-Path $__f) { . $__f }
-
-# ── Aliases ───────────────────────────────────────────────────────────
-# la — follows the Unix-side convention: long format + hidden items.
-# PowerShell aliases can't carry fixed parameters (-Force), so this has to be a function;
-# aliases take precedence over functions, so the existing Set-Alias la must be removed first
-Remove-Item Alias:la -Force -ErrorAction Ignore
 function la { Get-ChildItem -Force @args }
-
-# git — replaces the posh-git / git-aliases modules.
-# Must use a function instead of Set-Alias: aliases can't carry fixed parameters.
-# gp / gl are built-in read-only aliases (Get-ItemProperty / Get-Location), and command resolution order is
-# alias > function, so without removing them first, the functions below can never be called
-foreach ($a in "gp", "gl") { Remove-Item "Alias:$a" -Force -ErrorAction Ignore }
 
 function g { git @args }
 function gaa { git add --all @args }
@@ -90,31 +15,10 @@ function gp { git push @args }
 function gl { git pull @args }
 function gcl { git clone --recurse-submodules @args }
 function grt {
-    # Jump to the repository root. git returns nothing outside a repository, and Set-Location $null throws an error, so guard against that
     $root = git rev-parse --show-toplevel 2>$null
     if ($root) { Set-Location $root } else { Write-Warning "不在 git 仓库中" }
 }
 
-# ni / nr — ni is also a built-in alias (New-Item), so remove it first
-Remove-Item Alias:ni -Force -ErrorAction Ignore
-
-function nio { ni --prefer-offline }
-function s { nr start }
-function d { nr dev }
-function b { nr build }
-function bw { nr build --watch }
-function t { nr test }
-function tu { nr test -u }
-function tw { nr test --watch }
-function w { nr watch }
-function p { nr play }
-function c { nr typecheck }
-function lint { nr lint }
-function lintf { nr lint --fix }
-function release { nr release }
-function re { nr release }
-
-# ── Functions ───────────────────────────────────────────────────────────
 function i {
     param (
         [string]$DirectoryName
@@ -145,3 +49,20 @@ function claude {
     }
 }
 
+(&mise activate pwsh) | Out-String | Invoke-Expression
+
+function nio { ni --prefer-offline }
+function s { nr start }
+function d { nr dev }
+function b { nr build }
+function bw { nr build --watch }
+function t { nr test }
+function tu { nr test -u }
+function tw { nr test --watch }
+function w { nr watch }
+function p { nr play }
+function c { nr typecheck }
+function lint { nr lint }
+function lintf { nr lint --fix }
+function release { nr release }
+function re { nr release }
