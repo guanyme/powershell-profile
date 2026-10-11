@@ -2,11 +2,12 @@ Set-PSReadlineKeyHandler -Key Tab -Function MenuComplete
 
 Invoke-Expression (&starship init powershell)
 
-# PowerShell aliases cannot take parameters, so define them all as functions.
-# Built-in aliases take precedence over functions, so remove any with the same name first.
-foreach ($a in "la", "gp", "gl", "ni") { Remove-Item "Alias:$a" -Force -ErrorAction Ignore }
+(&mise activate pwsh) | Out-String | Invoke-Expression
 
+Remove-Item Alias:la -Force -ErrorAction Ignore
 function la { Get-ChildItem -Force @args }
+
+foreach ($a in "gp", "gl") { Remove-Item "Alias:$a" -Force -ErrorAction Ignore }
 
 function g { git @args }
 function gaa { git add --all @args }
@@ -27,29 +28,9 @@ function i {
     Set-Location -Path "$HOME\i\$DirectoryName"
 }
 
-function codex {
-    $baseArgs = @("--dangerously-bypass-approvals-and-sandbox")
-    $codexPath = (Get-Command codex -CommandType Application | Select-Object -First 1).Source
+function code { code.cmd --classic @args }
 
-    & $codexPath @baseArgs resume --last @args 2>$null
-
-    if ($LASTEXITCODE -ne 0) {
-        & $codexPath @baseArgs @args
-    }
-}
-
-function claude {
-    $baseArgs = @("--allow-dangerously-skip-permissions", "--permission-mode", "plan")
-    $claudePath = (Get-Command claude -CommandType Application).Source
-
-    & $claudePath @baseArgs -c @args 2>$null
-
-    if ($LASTEXITCODE -ne 0) {
-        & $claudePath @baseArgs @args
-    }
-}
-
-(&mise activate pwsh) | Out-String | Invoke-Expression
+Remove-Item Alias:ni -Force -ErrorAction Ignore
 
 function nio { ni --prefer-offline }
 function s { nr start }
@@ -66,3 +47,5 @@ function lint { nr lint }
 function lintf { nr lint --fix }
 function release { nr release }
 function re { nr release }
+
+. "C:\Users\guany\lib\oracle-cli\Lib\site-packages\oci_cli\bin\OciTabExpansion.ps1"
