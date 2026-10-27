@@ -28,7 +28,19 @@ function i {
     Set-Location -Path "$HOME\i\$DirectoryName"
 }
 
-function code { code.cmd --classic @args }
+function codex {
+    $baseArgs = @("--dangerously-bypass-approvals-and-sandbox")
+    $codexPath = (Get-Command codex -CommandType Application | Select-Object -First 1).Source
+
+    & $codexPath @baseArgs @args
+}
+
+function claude {
+    $baseArgs = @("--allow-dangerously-skip-permissions", "--permission-mode", "plan")
+    $claudePath = (Get-Command claude -CommandType Application).Source
+
+    & $claudePath @baseArgs @args
+}
 
 Remove-Item Alias:ni -Force -ErrorAction Ignore
 
